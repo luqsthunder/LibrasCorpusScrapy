@@ -25,6 +25,9 @@ class LibrasCorpusSpider(scrapy.Spider):
         super().__init__(**kwargs)
         self.curr_url = 'http://corpuslibras.ufsc.br/dados/dado/porprojeto' \
                         '/{}?page=1'
+
+        self.url_page = 'http://corpuslibras.ufsc.br/dados/dado/porprojeto' \
+                        '/{}?page=1'
         self.db = 'db/{}'
         self.all_pages_name = []
 
@@ -45,23 +48,23 @@ class LibrasCorpusSpider(scrapy.Spider):
                                                   estate))
 
                 for page_name in self.all_pages_name:
+                    print(self.url_page, page_name)
                     for pages in page_name['urls']:
-                        yield scrapy.Request(self.curr_url.format(pages),
+                        yield scrapy.Request(self.url_page.format(pages),
                                              decorate(self. parse_video_page,
                                                       page_name['name']))
-                    while self.curr_url is not None:
-                        # aqui n precisa atualizar com .format page_name pois
-                        # ja é atualizado com url next
-                        yield scrapy.Request(self.curr_url,
-                                             decorate(self.parse_video_page,
-                                                      page_name['name']))
+                        while self.curr_url is not None:
+                            # aqui n precisa atualizar com .format page_name
+                            # pois ja é atualizado com url next
+                            yield scrapy.Request(self.curr_url,
+                                                 decorate(self.parse_video_page,
+                                                          page_name['name']))
 
     def parse_all_estates_name(self, response):
         estates_xpath = '//map[@id="mapBrasil"]/area/@alt'
         self.all_estates = response.xpath(estates_xpath).getall()
 
     def parse_each_estate_page(self, response, page_name):
-        print(page_name)
         pages = json.loads(response.text)
         if len(pages['data']) > 0:
             urls_names = []
