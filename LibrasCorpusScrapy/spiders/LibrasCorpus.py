@@ -7,13 +7,15 @@ import time
 import unicodedata
 from tqdm import tqdm
 import json
+from pget.down import Downloader
 
 
 def decorate(func, param):
     def wrapper(p):
-        return func(p, param)
+        return func(p, **param) if isinstance(param, dict) else func(p, param)
 
     return wrapper
+
 
 class LibrasCorpusSpider(scrapy.Spider):
     name = 'LibrasCorpus'
@@ -29,6 +31,7 @@ class LibrasCorpusSpider(scrapy.Spider):
         self.url_page = 'http://corpuslibras.ufsc.br/dados/dado/porprojeto' \
                         '/{}?page=1'
         self.db = 'db/{}'
+        # '/run/media/lucas/04B40D7AB40D700A/Users/lucas/Documents/Projects/LibrasCorpusScrapy/db/{}'
         self.all_pages_name = []
 
     def start_requests(self):
@@ -52,13 +55,15 @@ class LibrasCorpusSpider(scrapy.Spider):
                     for pages in page_name['urls']:
                         yield scrapy.Request(self.url_page.format(pages),
                                              decorate(self. parse_video_page,
-                                                      page_name['name']))
+                                                      dict(page_name=page_name['name'],
+                                                           project_name=pages)))
                         while self.curr_url is not None:
                             # aqui n precisa atualizar com .format page_name
                             # pois ja é atualizado com url next
                             yield scrapy.Request(self.curr_url,
                                                  decorate(self.parse_video_page,
-                                                          page_name['name']))
+                                                          dict(page_name=page_name['name'],
+                                                               project_name=pages)))
 
     def parse_all_estates_name(self, response):
         estates_xpath = '//map[@id="mapBrasil"]/area/@alt'
@@ -70,9 +75,10 @@ class LibrasCorpusSpider(scrapy.Spider):
             urls_names = []
             for d in pages['data']:
                 urls_names.append(d['label'])
-            self.all_pages_name.append({'name': page_name, 'urls': urls_names})
+            self.all_pages_name.append({'name': page_name,
+                                        'urls': urls_names})
 
-    def parse_video_page(self, response, page_name):
+    def parse_video_page(self, response, page_name, project_name):
         data_keys = [int(dk) for dk in
                      response.xpath('//div[@data-key]/@data-key').getall()]
 
@@ -91,8 +97,10 @@ class LibrasCorpusSpider(scrapy.Spider):
             subtitles_path = base_xpath.format(dk) + 'span/p/span/a/@href'
             subtitles = response.xpath(subtitles_path).getall()
 
-            curr_dir = os.path.join(self.db.format(page_name),
+            curr_dir = os.path.join(self.db.format(page_name), project_name,
                                     name + 'v' + str(dk))
+
+            # print('curr_dir', curr_dir)
 
             tab_xpath = curr_xpath + 'div[@id="video-tab"]/' \
                                      'div[@class="tab-content"]'
@@ -106,7 +114,7 @@ class LibrasCorpusSpider(scrapy.Spider):
                     all_url_sub = self.allowed_domains[0] + s[1:]
                     subtitle_file_path = os.path.join(curr_dir, 'sub' + str(k))
                     downloads_queue.append({'url': all_url_sub,
-                                            'file': subtitle_file_path})
+                                            'file': subtitle_file_path + '.xml'})
 
                 for tab in range(amount_video_tab):
                     video_xpath = video_xpath.format(key + 1, tab)
@@ -125,7 +133,7 @@ class LibrasCorpusSpider(scrapy.Spider):
             if subtitles and video:
                 if not os.path.exists(curr_dir):
                     os.makedirs(curr_dir)
-                self.download_queued_files(downloads_queue)
+                self.download_queued_files_pget(downloads_queue)
 
         if not response.xpath('//li[@class="next"]/a/@href'):
             self.curr_url = None
@@ -159,4 +167,13 @@ class LibrasCorpusSpider(scrapy.Spider):
                     file.write(data)
             r.release_conn()
 
+    def download_queued_files_pget(self, files_queue_dict):
+        for dt in files_queue_dict:
+            if os.path.exists(dt['file']):
+                continue
+
+            print('downloading {}'.format(dt['file']))
+            downloader = Downloader(dt['url'], dt['file'], 8)
+            downloader.start()
+            downloader.wait_for_finish()
 
