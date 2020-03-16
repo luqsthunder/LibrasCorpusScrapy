@@ -5,8 +5,9 @@ import urllib3
 import sys
 import time
 import unicodedata
-from tqdm import tqdm
 import json
+import pandas as pd
+from tqdm import tqdm
 from pget.down import Downloader
 
 
@@ -23,6 +24,9 @@ class LibrasCorpusSpider(scrapy.Spider):
     http = urllib3.PoolManager()
     all_estates = []
 
+    retry_files = []
+    download_dataframe = pd.DataFrame(columns=['estate', 'project','subs', 'video'])
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.curr_url = 'http://corpuslibras.ufsc.br/dados/dado/porprojeto' \
@@ -30,7 +34,7 @@ class LibrasCorpusSpider(scrapy.Spider):
 
         self.url_page = 'http://corpuslibras.ufsc.br/dados/dado/porprojeto' \
                         '/{}?page=1'
-        self.db = 'db/{}'
+        self.db = '/media/lucas/Others/LibrasCorpus/{}'
         # '/run/media/lucas/04B40D7AB40D700A/Users/lucas/Documents/Projects/LibrasCorpusScrapy/db/{}'
         self.all_pages_name = []
 
@@ -51,7 +55,7 @@ class LibrasCorpusSpider(scrapy.Spider):
                                                   estate))
 
                 for page_name in self.all_pages_name:
-                    print(self.url_page, page_name)
+                    # print(self.url_page, page_name)
                     for pages in page_name['urls']:
                         yield scrapy.Request(self.url_page.format(pages),
                                              decorate(self. parse_video_page,
@@ -64,6 +68,10 @@ class LibrasCorpusSpider(scrapy.Spider):
                                                  decorate(self.parse_video_page,
                                                           dict(page_name=page_name['name'],
                                                                project_name=pages)))
+                self.download_dataframe.to_csv('downloads.csv')
+                # print('retry all failed errors')
+                # for dt in self.retry_files:
+                #     self.download_queued_files([dt])
 
     def parse_all_estates_name(self, response):
         estates_xpath = '//map[@id="mapBrasil"]/area/@alt'
@@ -79,6 +87,7 @@ class LibrasCorpusSpider(scrapy.Spider):
                                         'urls': urls_names})
 
     def parse_video_page(self, response, page_name, project_name):
+        print('downloading page {} project {}'.format(page_name, project_name))
         data_keys = [int(dk) for dk in
                      response.xpath('//div[@data-key]/@data-key').getall()]
 
@@ -103,11 +112,14 @@ class LibrasCorpusSpider(scrapy.Spider):
             # print('curr_dir', curr_dir)
 
             tab_xpath = curr_xpath + 'div[@id="video-tab"]/' \
-                                     'div[@class="tab-content"]'
+                                     'div[@class="tab-content"]' # \
+                                     # '/div[contains(@class, "tab-pane")]'
 
             amount_video_tab = len(response.xpath(tab_xpath).getall())
             downloads_queue = []
 
+            video_mp4_path = None
+            subtitles_urls = []
             video = False
             if subtitles:
                 for k, s in enumerate(subtitles):
@@ -115,6 +127,9 @@ class LibrasCorpusSpider(scrapy.Spider):
                     subtitle_file_path = os.path.join(curr_dir, 'sub' + str(k))
                     downloads_queue.append({'url': all_url_sub,
                                             'file': subtitle_file_path + '.xml'})
+                    subtitles_urls.append(all_url_sub)
+
+                subtitles_urls = ''.join(x + '||' for x in subtitles_urls)
 
                 for tab in range(amount_video_tab):
                     video_xpath = video_xpath.format(key + 1, tab)
@@ -133,7 +148,18 @@ class LibrasCorpusSpider(scrapy.Spider):
             if subtitles and video:
                 if not os.path.exists(curr_dir):
                     os.makedirs(curr_dir)
-                self.download_queued_files_pget(downloads_queue)
+                self.download_queued_files(downloads_queue)
+                single_line_df = pd.DataFrame(data=dict(estate=[page_name],
+                                                        project=[project_name],
+                                                        video=[video_mp4_path],
+                                                        subs=[subtitles_urls]))
+                self.download_dataframe = \
+                    self.download_dataframe.append(single_line_df,
+                                                   ignore_index=True)
+                print(self.download_dataframe)
+            else:
+                print('sub {}, video {}, tabs {}'.format(subtitles, video,
+                                                         amount_video_tab))
 
         if not response.xpath('//li[@class="next"]/a/@href'):
             self.curr_url = None
@@ -150,24 +176,28 @@ class LibrasCorpusSpider(scrapy.Spider):
             if os.path.exists(dt['file']):
                 continue
 
-            r = self.http.request('GET', dt['url'], preload_content=False)
+            try:
+                r = self.http.request('GET', dt['url'], preload_content=False)
+                with open(dt['file'], 'wb') as file:
+                    content_bytes = r.headers.get('Content-Length')
+                    if content_bytes == 0:
+                        continue
 
-            with open(dt['file'], 'wb') as file:
-                content_bytes = r.headers.get('Content-Length')
-                if content_bytes == 0:
-                    continue
+                    loops = (int(content_bytes) // 128) \
+                        if content_bytes is not None else 1000
 
-                loops = int(content_bytes) \
-                    if content_bytes is not None else 100000
+                    for _ in tqdm(range(loops)):
+                        data = r.read(128)
+                        if not data:
+                            break
+                        file.write(data)
+                    r.release_conn()
+            except:
+                print('error', dt['file'], dt['url'])
+                self.retry_files.append(dt)
 
-                for _ in tqdm(range(loops)):
-                    data = r.read(128)
-                    if not data:
-                        break
-                    file.write(data)
-            r.release_conn()
-
-    def download_queued_files_pget(self, files_queue_dict):
+    @staticmethod
+    def download_queued_files_pget(files_queue_dict):
         for dt in files_queue_dict:
             if os.path.exists(dt['file']):
                 continue
