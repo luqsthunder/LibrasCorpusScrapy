@@ -25,7 +25,8 @@ class LibrasCorpusSpider(scrapy.Spider):
     all_estates = []
 
     retry_files = []
-    download_dataframe = pd.DataFrame(columns=['estate', 'project','subs', 'video'])
+    download_dataframe = pd.DataFrame(columns=['estate', 'project',
+                                               'subs', 'video'])
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -35,11 +36,12 @@ class LibrasCorpusSpider(scrapy.Spider):
         self.url_page = 'http://corpuslibras.ufsc.br/dados/dado/porprojeto' \
                         '/{}?page=1'
         self.db = '/media/lucas/Others/LibrasCorpus/{}'
-        # '/run/media/lucas/04B40D7AB40D700A/Users/lucas/Documents/Projects/LibrasCorpusScrapy/db/{}'
+        # '/run/media/lucas/04B40D7AB40D700A/Users/lucas/Documents/Projects/
+        # LibrasCorpusScrapy/db/{}'
         self.all_pages_name = []
 
     def start_requests(self):
-        # Começamos a pegar nome de todos os estados disponiveis para crawl
+        # Aki começa a pegar nome de todos os estados disponiveis para crawl
         # as paginas disponiveis.
         while self.curr_url is not None:
             if len(self.all_estates) == 0:
@@ -47,31 +49,27 @@ class LibrasCorpusSpider(scrapy.Spider):
                 yield scrapy.Request(all_estates_page_url,
                                      self.parse_all_estates_name)
             else:
-                estate_url = \
-                    'http://corpuslibras.ufsc.br/dados/projeto/porestado?term={}'
+                estate_url = 'http://corpuslibras.ufsc.br/dados/projeto/' \
+                             'porestado?term={}'
+
                 for estate in self.all_estates:
                     yield scrapy.Request(estate_url.format(estate),
                                          decorate(self.parse_each_estate_page,
                                                   estate))
 
                 for page_name in self.all_pages_name:
-                    # print(self.url_page, page_name)
                     for pages in page_name['urls']:
-                        yield scrapy.Request(self.url_page.format(pages),
-                                             decorate(self. parse_video_page,
-                                                      dict(page_name=page_name['name'],
-                                                           project_name=pages)))
+                        fn_cb = decorate(self.parse_video_page,
+                                         dict(page_name=page_name['name'],
+                                              project_name=pages))
+                        yield scrapy.Request(self.url_page.format(pages), fn_cb)
                         while self.curr_url is not None:
-                            # aqui n precisa atualizar com .format page_name
+                            # aqui não precisa atualizar com .format page_name
                             # pois ja é atualizado com url next
-                            yield scrapy.Request(self.curr_url,
-                                                 decorate(self.parse_video_page,
-                                                          dict(page_name=page_name['name'],
-                                                               project_name=pages)))
-                self.download_dataframe.to_csv('downloads.csv')
-                # print('retry all failed errors')
-                # for dt in self.retry_files:
-                #     self.download_queued_files([dt])
+                            fn_cb = decorate(self.parse_video_page,
+                                             dict(page_name=page_name['name'],
+                                                  project_name=pages))
+                            yield scrapy.Request(self.curr_url, fn_cb)
 
     def parse_all_estates_name(self, response):
         estates_xpath = '//map[@id="mapBrasil"]/area/@alt'
@@ -87,12 +85,26 @@ class LibrasCorpusSpider(scrapy.Spider):
                                         'urls': urls_names})
 
     def parse_video_page(self, response, page_name, project_name):
+        """
+        Aqui a pagina principal de cada projeto por estado é crawlada.
+        Encontrando cada video e legendas respectivamentes é passado url e nome
+        das legendas e videos para ser feito o download. Ao acabar a pagina
+        é verificado se há mais paginas dentro do projeto a serem crawladas mais
+        uma requisição é feita. A requisição é feita alterando o estado atual
+        da variavel self.curr_url
+        
+        :param response
+        :param page_name
+        :param project_name
+        :returns
+        """
         print('downloading page {} project {}'.format(page_name, project_name))
         data_keys = [int(dk) for dk in
                      response.xpath('//div[@data-key]/@data-key').getall()]
 
         base_xpath = '//div[@data-key="{}"]/div[@class="view data-view"]/' \
                      'div[@id="metadados"]/'
+
         for key, dk in enumerate(data_keys):
             curr_xpath = base_xpath.format(dk)
             name_xpath = curr_xpath + 'h3/span/text()'
@@ -109,11 +121,8 @@ class LibrasCorpusSpider(scrapy.Spider):
             curr_dir = os.path.join(self.db.format(page_name), project_name,
                                     name + 'v' + str(dk))
 
-            # print('curr_dir', curr_dir)
-
             tab_xpath = curr_xpath + 'div[@id="video-tab"]/' \
-                                     'div[@class="tab-content"]' # \
-                                     # '/div[contains(@class, "tab-pane")]'
+                                     'div[@class="tab-content"]'
 
             amount_video_tab = len(response.xpath(tab_xpath).getall())
             downloads_queue = []
@@ -171,6 +180,9 @@ class LibrasCorpusSpider(scrapy.Spider):
         """
         Faz os downloads dentro do files_queue_dict, checa se o arquivo ja
         existe antes de fazer o download para não baixar nada desnecessario.
+
+        :param files_queue_dict fila contendo um dicionario com url e nome dos
+                                arquivos a serem baixados.
         """
         for dt in files_queue_dict:
             if os.path.exists(dt['file']):
@@ -198,6 +210,16 @@ class LibrasCorpusSpider(scrapy.Spider):
 
     @staticmethod
     def download_queued_files_pget(files_queue_dict):
+        """
+        Baixa os arquivos emfileirados checando se ja não foi baixado
+        anteriormente. Utiliza o pget para fazer os downloads. Pget é uma
+        biblioteca semelhante ao wget (linha de comando do linux) entretanto
+        baixa os arquivos em lotes, podendo ter um numero enorme de threads
+        baixando o arquivo e podendo funcionar asincronamente.
+
+        :param files_queue_dict fila contendo um dicionario com url e nome dos
+                                arquivos a serem baixados.
+        """
         for dt in files_queue_dict:
             if os.path.exists(dt['file']):
                 continue
