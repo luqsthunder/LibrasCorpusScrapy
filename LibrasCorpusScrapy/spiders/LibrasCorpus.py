@@ -92,7 +92,7 @@ class LibrasCorpusSpider(scrapy.Spider):
         é verificado se há mais paginas dentro do projeto a serem crawladas mais
         uma requisição é feita. A requisição é feita alterando o estado atual
         da variavel self.curr_url
-        
+
         :param response
         :param page_name
         :param project_name
@@ -107,7 +107,7 @@ class LibrasCorpusSpider(scrapy.Spider):
 
         for key, dk in enumerate(data_keys):
             curr_xpath = base_xpath.format(dk)
-            name_xpath = curr_xpath + 'h3/span/text()'
+            name_xpath = curr_xpath  + 'h3/span/text()'
             video_xpath = curr_xpath + 'div[@id="video-tab"]/' \
                                        'div[@class="tab-content"]/' \
                                        'div[@id="w{}-tab{}"]/video/source/@src'
@@ -157,15 +157,13 @@ class LibrasCorpusSpider(scrapy.Spider):
             if subtitles and video:
                 if not os.path.exists(curr_dir):
                     os.makedirs(curr_dir)
-                self.download_queued_files(downloads_queue)
                 single_line_df = pd.DataFrame(data=dict(estate=[page_name],
                                                         project=[project_name],
                                                         video=[video_mp4_path],
                                                         subs=[subtitles_urls]))
-                self.download_dataframe = \
-                    self.download_dataframe.append(single_line_df,
-                                                   ignore_index=True)
-                print(self.download_dataframe)
+                single_line_df.to_csv(curr_dir + 'files_download.csv')
+                self.download_queued_files(downloads_queue)
+                # print(self.download_dataframe)
             else:
                 print('sub {}, video {}, tabs {}'.format(subtitles, video,
                                                          amount_video_tab))
