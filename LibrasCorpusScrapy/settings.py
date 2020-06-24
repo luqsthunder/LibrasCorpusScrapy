@@ -15,7 +15,7 @@ SPIDER_MODULES = ['LibrasCorpusScrapy.spiders']
 NEWSPIDER_MODULE = 'LibrasCorpusScrapy.spiders'
 
 
-LOG_LEVEL = 'ERROR'
+LOG_LEVEL = 'DEBUG'
 
 # Crawl responsibly by identifying yourself (and your website) on the user-agent
 #USER_AGENT = 'LibrasCorpusScrapy (+http://www.yourdomain.com)'
