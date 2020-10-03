@@ -25,7 +25,7 @@ class CheckAllVideosIntegrity:
         self.bad_videos_df = pd.DataFrame()
 
     def process(self):
-        for f in tqdm(self.folders):
+        for f in tqdm(self.folders[1:]):
             ret = self._read_single_folder(f)
             url_video_group = self._group_video_name_2_his_own_url(ret['videos'], ret['download_csv'])
             curr_end = self.all_videos[self.all_videos.folder == f].end.max()
@@ -130,9 +130,6 @@ class CheckAllVideosIntegrity:
             last_msec = curr_msec
 
         return True
-
-
-
 
 if __name__ == '__main__':
     a = CheckAllVideosIntegrity('/media/usuario/Others/gdrive/LibrasCorpus', '../LibrasDB/all_videos.csv')
