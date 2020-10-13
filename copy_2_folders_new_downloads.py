@@ -8,7 +8,7 @@ import pandas as pd
 #%%
 bad_videos = pd.read_csv('need_2_download.csv')
 db_path = '/media/usuario/Others/gdrive/LibrasCorpus/Santa Catarina/Inventario Libras/'
-base_download_folder = '/home/usuario/Downloads/libras_videos/'
+base_download_folder = '/home/usuario/Downloads/libras_videos2_batch/'
 downloads_files = list(filter(lambda x: '.mp4' in x ,
                               [os.path.join(base_download_folder, x) for x in os.listdir(base_download_folder)]))
 

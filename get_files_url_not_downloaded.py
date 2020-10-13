@@ -34,3 +34,9 @@ to_download.to_csv('need_2_download.csv', index=False)
 for a in to_download.iterrows():
     a = a[1]
     print(a.url, file=open('to_download.txt', mode='a'))
+
+# %%
+data_df_2_download = pd.read_csv('bad_itens.csv')
+for a in data_df_2_download.iterrows():
+    a = a[1]
+    print(a.url, file=open('to_download.txt', mode='a'))
