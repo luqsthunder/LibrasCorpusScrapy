@@ -1,4 +1,6 @@
 import scrapy
+from scrapy.crawler import CrawlerProcess
+from scrapy.utils.project import get_project_settings
 from copy import copy
 import json
 import pandas as pd
@@ -63,6 +65,8 @@ class LibrasCorpusFetchProjects(scrapy.Spider):
 
             estates_projects_df.to_csv('all_projects.csv')
 
+
 if __name__ == '__main__':
-    crawler = LibrasCorpusFetchProjects()
-    crawler.install()
+    process = CrawlerProcess(get_project_settings())
+    process.crawl('LibrasCorpusFetchProjects')
+    process.start()

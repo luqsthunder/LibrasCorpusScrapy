@@ -5,6 +5,9 @@ import pandas as pd
 import unicodedata
 from copy import copy
 
+from scrapy.crawler import CrawlerProcess
+from scrapy.utils.project import get_project_settings
+
 
 def decorate(func, param):
     def wrapper(p):
@@ -19,6 +22,7 @@ class LibrasCorpusSpider(scrapy.Spider):
 
     download_dataframe = pd.DataFrame(columns=['estate', 'project', 'item_name',
                                                'subs', 'video'])
+    url_base = 'http://corpuslibras.ufsc.br/dados/dado/porprojeto/{}?page={}'
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -26,30 +30,37 @@ class LibrasCorpusSpider(scrapy.Spider):
                         '/{}?page=1'
 
         self.db = './db/{}'
+        all_projects = pd.read_csv('../../all_projects.csv').drop(columns=['Unnamed: 0'])
+        self.estates_project = {
+            proj: [] for proj in all_projects.estate.unique().tolist()
+        }
+
+        for idx, proj in all_projects.iterrows():
+            if not any(proj.isna()):
+                self.estates_project[proj.estate].append(proj.project)
+
+        self.estates = all_projects.estate.unique().tolist()
+
+        for k in self.estates_project.keys():
+            self.estates_project[k] = list(set(self.estates_project[k]))
 
     def start_requests(self):
-        # Aki começa a pegar nome de todos os estados disponiveis para crawl
-        # as paginas disponiveis.
+        """
 
-        # yield scrapy.Request('', self.make_login)
-        # projs_df = pd.read_csv('all_projects.csv', index_col=0)
-        # projs_df = projs_df.drop_duplicates()
-        # for row in projs_df.iterrows():
-        #     row = row[1]
-        #     if row.project.isna():
-        #         continue
+        :return:
+        """
 
-            # url = copy(self.curr_url).format(row.project)
-        url_base = 'http://corpuslibras.ufsc.br/dados/dado/porprojeto' \
-                   '/Invent%C3%A1rio+Libras?page={}'
+        for estate in self.estates:
+            if len(self.estates_project[estate]) == 0:
+                continue
 
-        url = 'http://corpuslibras.ufsc.br/dados/dado/porprojeto' \
-              '/Invent%C3%A1rio+Libras?page=1'
-        fn_cb = decorate(self.parse, dict(estate_name='Santa Catarina',
-                                          project_name='Inventario Libras',
-                                          base_page_url=url_base,
-                                          cur_page_pos=1))
-        yield scrapy.Request(url, fn_cb)
+            proj_name = self.estates_project[estate][0]
+            url = copy(self.url_base).format(proj_name, 1)
+            fn_cb = decorate(self.parse, dict(estate_name=estate,
+                                              project_name=proj_name,
+                                              base_page_url=copy(self.url_base),
+                                              cur_page_pos=1))
+            yield scrapy.Request(url, fn_cb)
 
     def make_login(self, response):
         token_xpath = '//input[@name="_csrf"]/@value'
@@ -57,7 +68,7 @@ class LibrasCorpusSpider(scrapy.Spider):
         login_form_data = {
             '_csrf': token,
             'LoginForm[usuario]': 'lafa@ic.ufal.br',
-            'LoginForm[senha]': '12345'
+            'LoginForm[senha]': 'K!ll3rinstinct'
         }
         yield scrapy.FormRequest.from_response(response,
                                                formdata=login_form_data)
@@ -143,32 +154,31 @@ class LibrasCorpusSpider(scrapy.Spider):
                                                    'files_download.csv'))
 
         if response.xpath('//li[@class="next"]/a/@href'):
-            url = base_page_url.format(cur_page_pos + 1)
-            fn_cb = decorate(self.parse, dict(estate_name='Santa Catarina',
-                                              project_name='Inventario Libras',
+            url = copy(base_page_url).format(project_name, cur_page_pos + 1)
+            fn_cb = decorate(self.parse, dict(estate_name=estate_name,
+                                              project_name=project_name,
                                               base_page_url=base_page_url,
                                               cur_page_pos=cur_page_pos + 1))
-            yield scrapy.Request(url, fn_cb)
+        else:
+            next_proj_index = self.estates_project[estate_name].index(project_name)
+            next_proj_index = next_proj_index + 1 if len(self.estates_project[estate_name]) > next_proj_index + 1\
+                                                  else None
+
+            if next_proj_index is None:
+                return
+
+            # setando novo projeto, setando o URL para ele.
+            new_proj_name = self.estates_project[estate_name][next_proj_index]
+            url = copy(base_page_url).format(new_proj_name, 1)
+
+            fn_cb = decorate(self.parse, dict(estate_name=estate_name,
+                                              project_name=new_proj_name,
+                                              base_page_url=base_page_url,
+                                              cur_page_pos=1))
+        yield scrapy.Request(url, fn_cb)
 
 
-    @staticmethod
-    def download_queued_files_pget(files_queue_dict):
-        """
-        Baixa os arquivos emfileirados checando se ja não foi baixado
-        anteriormente. Utiliza o pget para fazer os downloads. Pget é uma
-        biblioteca semelhante ao wget (linha de comando do linux) entretanto
-        baixa os arquivos em lotes, podendo ter um numero enorme de threads
-        baixando o arquivo e podendo funcionar asincronamente.
-
-        :param files_queue_dict fila contendo um dicionario com url e nome dos
-                                arquivos a serem baixados.
-        """
-        for dt in files_queue_dict:
-            if os.path.exists(dt['file']):
-                continue
-
-            print('downloading {}'.format(dt['file']))
-            downloader = Downloader(dt['url'], dt['file'], 8)
-            downloader.start()
-            downloader.wait_for_finish()
-
+if __name__ == '__main__':
+    process = CrawlerProcess(get_project_settings())
+    process.crawl('LibrasCorpus')
+    process.start()
